@@ -1,6 +1,7 @@
 <?php
 /**
  * Configuration File for the Facebook CAPI Handler.
+ * v4.0: Added phone number mapping.
  */
 
 // =============================================================================
@@ -14,7 +15,6 @@ define('FB_GRAPH_API_VERSION', 'v23.0');
 // Сопоставление данных
 // =============================================================================
 
-// Карта статусов Keitaro на события Facebook.
 define('STATUS_TO_EVENT_MAP', [
     'lead' => 'Lead',
     'sale' => 'Purchase',
@@ -22,30 +22,21 @@ define('STATUS_TO_EVENT_MAP', [
 
 /**
  * Карта параметров из URL Keitaro на поля Facebook Advanced Matching.
- * Эти данные будут хешироваться и использоваться для повышения качества сопоставления.
+ * Эти данные будут автоматически хешироваться.
  */
 define('KEITARO_TO_FB_ADVANCED_MATCHING_MAP', [
-    'city'    => 'ct',
-    'region'  => 'st',
-    'country_code' => 'country',
-    // Если вы будете передавать email, имя или телефон, добавьте их сюда.
-    // 'email' => 'em',
-    // 'phone' => 'ph',
-    // 'fname' => 'fn',
+    'city'         => 'ct',      // Город
+    'region'       => 'st',      // Штат/Регион
+    'country_code' => 'country', // Код страны
+    'lang'         => 'lc',      // Язык пользователя
+    'sub_id_15'    => 'ph',      // НОВОЕ: Номер телефона (будет хешироваться)
 ]);
 
 /**
- * Список параметров, которые будут добавлены в 'custom_data'.
- * Это все остальные полезные данные из Keitaro, которые вы хотите видеть в Facebook.
+ * Список пользовательских параметров для передачи в 'custom_data'.
  */
 define('KEITARO_CUSTOM_DATA_PARAMS', [
-    'source',
-    'creative_id',
-    'ad_campaign_id',
-    'sub_id_1',
-    'sub_id_2',
-    'sub_id_3',
-    'sub_id_4',
-    'sub_id_5',
-    'cost',
+    'utm_source', 'utm_campaign', 'creative_id', 'utm_placement',
+    'campaign_id', 'adset_id', 'adset_name', 'ad_name', 'cost',
+    'sub_id_12', 'sub_id_13', 'sub_id_14', // sub_id_15 теперь используется выше
 ]);
