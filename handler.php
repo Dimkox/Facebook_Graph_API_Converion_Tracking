@@ -1,17 +1,13 @@
 <?php
 /**
  * Ultimate Facebook Conversions API Handler for Keitaro
- *
- * Processes S2S postbacks with a full set of parameters from traffic logs
- * for maximum Event Match Quality and detailed custom analytics.
+ * v5.0: Now supports resending events via POST requests from the log viewer.
  */
 
 require_once __DIR__ . '/config.php';
+define('LOG_FILE', __DIR__ . '/capi_log.txt');
 
-/**
- * Class FacebookCapiHandler
- * Encapsulates all logic for Facebook Conversions API.
- */
+// ... (Весь код класса FacebookCapiHandler остается БЕЗ ИЗМЕНЕНИЙ) ...
 class FacebookCapiHandler
 {
     private $pixelId;
@@ -38,8 +34,10 @@ class FacebookCapiHandler
         $eventData = $this->buildEventPayload($eventName, $params);
         $result = $this->executeApiRequest($eventName, $eventData);
 
-        // Логируем транзакцию
-        $this->logTransaction($params, $eventData, $result);
+        // Логируем транзакцию, только если это не тестовый вызов
+        if (!isset($params['is_test'])) {
+            $this->logTransaction($params, $eventData, $result);
+        }
 
         return $result;
     }
@@ -49,24 +47,21 @@ class FacebookCapiHandler
         $currentTime = time();
         $userData = ['fbc' => sprintf('fb.1.%d.%s', $currentTime, $params['fbclid'])];
         $customData = [];
-
-        // Шаг 1: Обработка полей для Advanced Matching (с хешированием).
-        // Этот цикл автоматически подхватит новый параметр 'lang'.
         foreach (KEITARO_TO_FB_ADVANCED_MATCHING_MAP as $keitaroKey => $fbKey) {
             if (!empty($params[$keitaroKey])) {
                 $userData[$fbKey] = hash('sha256', strtolower($params[$keitaroKey]));
             }
         }
-        
         if (!empty($params['ip'])) $userData['client_ip_address'] = $params['ip'];
         if (!empty($params['user_agent'])) $userData['client_user_agent'] = $params['user_agent'];
-
+        if (!empty($params['fbp'])) {
+            $userData['fbp'] = $params['fbp'];
+        }
         foreach (KEITARO_CUSTOM_DATA_PARAMS as $key) {
             if (!empty($params[$key])) {
                 $customData[$key] = $params[$key];
             }
         }
-        
         $eventData = [
             'event_name' => $eventName,
             'event_time' => $currentTime,
@@ -74,16 +69,13 @@ class FacebookCapiHandler
             'event_id' => uniqid('event_', true),
             'user_data' => $userData,
         ];
-        
         if ($eventName === 'Purchase' && !empty($params['payout'])) {
             $customData['value'] = (float)$params['payout'];
             $customData['currency'] = strtoupper($params['currency'] ?? 'USD');
         }
-
         if (!empty($customData)) {
             $eventData['custom_data'] = $customData;
         }
-        
         return $eventData;
     }
 
@@ -91,16 +83,13 @@ class FacebookCapiHandler
     {
         $apiUrl = sprintf('https://graph.facebook.com/%s/%s/events', $this->apiVersion, $this->pixelId);
         $payload = http_build_query(['data' => json_encode([$eventData]), 'access_token' => $this->accessToken]);
-        
         $ch = curl_init();
         curl_setopt_array($ch, [CURLOPT_URL => $apiUrl, CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true, CURLOPT_POSTFIELDS => $payload]);
         $responseBody = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
-
         $isSuccess = ($httpCode >= 200 && $httpCode < 300);
         $message = $isSuccess ? "Event '{$eventName}' sent." : "Failed to send event '{$eventName}'.";
-        
         return $this->formatResponse($isSuccess ? 200 : 502, $isSuccess, $message, $eventData, json_decode($responseBody, true));
     }
     
@@ -122,19 +111,26 @@ class FacebookCapiHandler
         file_put_contents(LOG_FILE, json_encode($logEntry, JSON_UNESCAPED_UNICODE) . PHP_EOL, FILE_APPEND | LOCK_EX);
     }
 }
-
 // =============================================================================
 // Точка входа и обработка запроса
 // =============================================================================
 
-define('LOG_FILE', __DIR__ . '/capi_log.txt');
-
 try {
     $handler = new FacebookCapiHandler(FB_PIXEL_ID, FB_ACCESS_TOKEN, FB_GRAPH_API_VERSION);
-    $result = $handler->sendEvent($_GET);
+    
+    // НОВОЕ: Определяем, откуда пришли данные - от Keitaro (GET) или от логгера (POST)
+    $params = [];
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $params = $_POST;
+    } else {
+        $params = $_GET;
+    }
+
+    $result = $handler->sendEvent($params);
     header('Content-Type: application/json');
-    unset($result['sent_data']);
+    unset($result['sent_data']); // Не показываем это в ответе, только в логе
     echo json_encode($result);
+
 } catch (Exception $e) {
     header('Content-Type: application/json');
     http_response_code(500);
